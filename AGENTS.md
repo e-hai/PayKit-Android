@@ -58,7 +58,7 @@ JitPack：`jitpack.yml` 只发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-
 
 | Tool | Version |
 |------|---------|
-| Gradle | 8.13 |
+| Gradle | 9.1.0 |
 | AGP | 8.13.2 |
 | Kotlin | 2.3.20 |
 | JDK | 17 |
