@@ -58,16 +58,16 @@ JitPack：`jitpack.yml` 只发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-
 
 | Tool | Version |
 |------|---------|
-| Gradle | 9.1.0 |
-| AGP | 8.13.2 |
-| Kotlin | 2.3.20 |
-| JDK | 17 |
+| Gradle | 9.8.2 |
+| AGP | 9.1.0 |
+| Kotlin | 2.3.20 (AGP 9+ 内置编译) |
+| JDK | 17+ (兼容 JDK 25) |
 | Billing Library | 8.3.0 |
 | `:pay` minSdk / compileSdk | 21 / 36 |
 | `:sample` minSdk / compileSdk | 23 / 36 |
 
-- `:pay`：`android.library` + `kotlin.android`
-- `:sample`：`android.application` + `kotlin.android` + Compose Compiler 插件
+- `:pay`：`android.library`（AGP 9+ 内置 Kotlin 编译）
+- `:sample`：`android.application` + Compose Compiler 插件（AGP 9+ 内置 Kotlin 编译）
 - 依赖用 Version Catalog 的 `libs.bundles.pay` / `libs.bundles.app`
 
 ## Architecture
