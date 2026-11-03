@@ -1,4 +1,4 @@
-# PayKit – AGENTS.md
+# PayKit-Android – AGENTS.md
 
 给 AI Agent（Cursor / Codex / Copilot 等）用的项目说明：快速理解结构、约定与安全改动边界。
 
@@ -50,7 +50,7 @@ PayKit/
 implementation(project(":pay"))
 ```
 
-JitPack：`jitpack.yml` 只发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-publish`，坐标 `com.github.e-hai:PayKit:<tag>`。
+JitPack：`jitpack.yml` 只发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-publish`，坐标 `com.github.e-hai:PayKit-Android:<tag>`。
 
 ## Build Toolchain
 

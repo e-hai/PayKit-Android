@@ -49,7 +49,7 @@ afterEvaluate {
             create<MavenPublication>("release") {
                 from(components["release"])
                 groupId = "com.github.e-hai"
-                artifactId = "PayKit"
+                artifactId = "PayKit-Android"
             }
         }
     }

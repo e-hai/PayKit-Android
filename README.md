@@ -1,4 +1,4 @@
-# PayKit - Google Play 支付 SDK
+# PayKit-Android - Google Play 支付 SDK
 
 ## 📖 简介
 
@@ -134,7 +134,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.e-hai:PayKit:v1.0.0")
+    implementation("com.github.e-hai:PayKit-Android:v1.0.0")
 }
 ```
 
