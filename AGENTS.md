@@ -6,7 +6,7 @@
 
 轻量级 Android Google Play 支付 SDK（`:pay`）+ Compose 示例 App（`:sample`）。
 
-封装 [Google Play Billing Library](https://developer.android.com/google/play/billing) **8.3.0**，对外提供简洁、**纯本地无后端**的协程 API：
+封装 [Google Play Billing Library](https://developer.android.com/google/play/billing) **9.1.0**，对外提供简洁、**纯本地无后端**的协程 API：
 
 - 商品查询 / 发起购买 / 自动 acknowledge 或 consume
 - 启动时同步购买记录（补单）
@@ -17,19 +17,19 @@
 ## Project Layout
 
 ```
-PayKit/
+PayKit-Android/
 ├── pay/                          # SDK 库（namespace: com.kit.pay）
-│   ├── consumer-rules.pro            # 宿主 minify 时自动应用的 keep 规则
+│   ├── consumer-rules.pro        # 宿主 minify 时自动应用的 keep 规则
 │   └── src/main/java/com/kit/pay/
-│       ├── PayKit.kt                 # [Entry Point] 单例门面
+│       ├── PayKit.kt             # [Entry Point] 单例门面
 │       ├── billing/
 │       │   ├── BillingAbstract.kt    # 支付抽象层 + PurchasesUpdatedListener
 │       │   └── GoogleBillingWrapper.kt  # BillingClient 实现
 │       ├── caching/DeviceCache.kt    # CustomerInfo 权益快照持久化
 │       ├── caching/ConsumableLedger.kt # 消耗品履约账本（待 consume）
 │       ├── subscriber/CustomerInfoHelper.kt  # 订单 → 权益归类
-│       ├── models/                   # PayKitConfiguration / CustomerInfo / StoreProduct / StoreTransaction
-│       ├── interfaces/               # PurchaseCallback / PurchaseVerifier / UpdatedCustomerInfoListener / PayKitError
+│       ├── models/               # PayKitConfiguration / CustomerInfo / StoreProduct / StoreTransaction
+│       ├── interfaces/           # PurchaseCallback / PurchaseVerifier / UpdatedCustomerInfoListener / PayKitError
 │       └── utils/LogUtil.kt
 ├── sample/                       # 示例 App（namespace: com.kit.pay.sample）
 │   └── src/main/java/com/kit/pay/sample/
@@ -50,7 +50,7 @@ PayKit/
 implementation(project(":pay"))
 ```
 
-JitPack：`jitpack.yml` 只发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-publish`，坐标 `com.github.e-hai:PayKit-Android:<tag>`。
+JitPack：`jitpack.yml` 只发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-publish`，坐标 `com.github.e-hai:PayKit-Android:<tag>`（如 `1.0.0`）。
 
 ## Build Toolchain
 
@@ -59,12 +59,12 @@ JitPack：`jitpack.yml` 只发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-
 | Tool | Version |
 |------|---------|
 | Gradle | 9.8.2 |
-| AGP | 9.1.0 |
-| Kotlin | 2.3.20 (AGP 9+ 内置编译) |
+| AGP | 9.1.1 |
+| Kotlin | 2.4.21 (AGP 9+ 内置编译) |
 | JDK | 17+ (兼容 JDK 25) |
-| Billing Library | 8.3.0 |
-| `:pay` minSdk / compileSdk | 21 / 36 |
-| `:sample` minSdk / compileSdk | 23 / 36 |
+| Billing Library | 9.1.0 |
+| `:pay` minSdk / compileSdk | 21 / 37 |
+| `:sample` minSdk / compileSdk | 23 / 37 |
 
 - `:pay`：`android.library`（AGP 9+ 内置 Kotlin 编译）
 - `:sample`：`android.application` + Compose Compiler 插件（AGP 9+ 内置 Kotlin 编译）

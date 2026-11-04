@@ -1,36 +1,38 @@
 [versions]
 # Android Gradle Plugin
-agp = "9.1.0"
+agp = "9.1.1"
 
 # Kotlin
-kotlin = "2.3.20"
+kotlin = "2.4.21"
 
 # AndroidX Core
-core-ktx = "1.13.1"
-appcompat = "1.6.1"
+core-ktx = "1.19.1"
+appcompat = "1.8.0"
 
 # Compose
-compose-bom = "2024.05.00"
-activity-compose = "1.9.0"
-lifecycle-runtime-compose = "2.8.0"
-splashscreen = "1.0.1"
+compose-bom = "2026.09.00"
+activity-compose = "1.13.0"
+lifecycle-runtime-compose = "2.11.0"
+splashscreen = "1.2.0"
 
 # Lifecycle
-lifecycle = "2.10.0"
+lifecycle = "2.11.0"
 
 # Concurrent Futures
 concurrent-futures = "1.3.0"
 
 # Collection
-collection = "1.6.0"
+collection = "1.7.0"
 
 # Google Billing
-billing = "8.3.0"
+billing = "9.1.0"
 
 # Testing
 junit = "4.13.2"
-androidx-test-ext = "1.1.5"
-espresso-core = "3.5.1"
+androidx-test-ext = "1.3.0"
+espresso-core = "3.7.0"
+
+meterial = "1.4.0"
 
 [libraries]
 # AndroidX Core
@@ -41,7 +43,7 @@ androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle-runtime-compose" }
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
-compose-material3 = { group = "androidx.compose.material3", name = "material3", version = "1.2.1" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "meterial" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
 
 # Lifecycle

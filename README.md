@@ -1,40 +1,48 @@
-# PayKit-Android - Google Play 支付 SDK
+# PayKit-Android
 
-## 📖 简介
+[![Release](https://img.shields.io/badge/Release-1.0.0-blue.svg)](https://github.com/e-hai/PayKit-Android/releases/tag/1.0.0)
+[![JitPack](https://jitpack.io/v/e-hai/PayKit-Android.svg)](https://jitpack.io/#e-hai/PayKit-Android)
+[![Platform](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4-purple.svg)](https://kotlinlang.org)
+[![Google Play Billing](https://img.shields.io/badge/BillingClient-9.1.0-orange.svg)](https://developer.android.com/google/play/billing)
+[![License](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
 
-PayKit 是一个轻量级的 Android 支付结算库，封装了 Google Play Billing Library，提供简洁的协程 API。
-
-**核心特性：**
-- ✅ 完整的支付流程封装（查询、购买、确认）
-- ✅ Kotlin 协程支持，无回调地狱
-- ✅ 自动处理订单确认和权益同步
-- ✅ 支持订阅商品、消耗型商品、非消耗型商品
-- ✅ 内置订单恢复机制，防止掉单
-- ✅ 线程安全；查询 / 同步可并发，购买同一时刻仅允许一笔进行中
+**PayKit-Android** 是一个专为 Android 打造的高可靠、轻量级 Google Play 支付 SDK。采用现代 Kotlin 协程架构，全面封装 Google Play Billing Library，支持纯本地无后端快速接入，同时保留服务端验单与跨端对齐扩展能力。
 
 ---
 
-## 🏗 架构与流程
+## 🌟 核心特性
 
-### 代码架构
+- **现代协程 API**：全面拥抱 Kotlin Coroutines（`suspend` 挂起函数）与 Flow，告别传统 Billing 复杂的多层异步回调地狱。
+- **纯本地极速接入**：无需自建鉴权后端，SDK 内置权益计算引擎，开箱即用计算订阅与内购有效状态。
+- **冷启动秒开快照**：基于 `DeviceCache` 的本地持久化权益缓存，App 启动首屏零延迟立即可用。
+- **防掉单履约账本**：针对消耗品（金币/道具）内置 `ConsumableLedger`，发货未 consume 先落盘。应对网络断开、App 强退或进程崩溃，自动在下次启动时对账补单。
+- **并发购买安全防护**：内置单笔交易互斥锁，多重点击自动拦截并返回 `PURCHASE_IN_PROGRESS`，杜绝重复扣款与事务覆盖。
+- **订阅全周期支持**：完整支持新一代 Google Play 基础方案（Base Plan）与优惠方案（Offers），支持订阅换档与升降级（`SubscriptionReplacement`）。
+- **插拔式验单扩展**：默认采用 `LocalPurchaseVerifier` 快速上线；生产环境可一键注入自定义 `PurchaseVerifier` 对接自有服务端校验。
+- **主线程安全调度**：所有面向 UI 的监听器与回调（`PurchaseCallback`、`UpdatedCustomerInfoListener`）均自动在主线程派发，直接安全更新 UI。
 
-宿主只依赖 `PayKit` 门面；Billing、缓存、权益计算与可选验单扩展在库内分层协作。
+---
+
+## 🏗️ 架构与数据流
+
+### 模块分层架构
 
 ```mermaid
 flowchart TB
     subgraph Host["宿主 App"]
-        VM["ViewModel / Activity"]
+        VM["ViewModel / Activity / Compose UI"]
     end
 
     subgraph SDK[":pay SDK"]
         PK["PayKit 单例门面"]
-        PV["PurchaseVerifier<br/>默认 Local / 可接服务端"]
-        CIH["CustomerInfoHelper<br/>订单 → 权益"]
-        DC["DeviceCache<br/>权益快照"]
-        CL["ConsumableLedger<br/>消耗品履约账本"]
-        BA["BillingAbstract"]
-        GB["GoogleBillingWrapper"]
-        BC["BillingClient 8.x"]
+        PV["PurchaseVerifier (本地校验 / 可扩展服务端验单)"]
+        CIH["CustomerInfoHelper (订单 → 权益归类引擎)"]
+        DC["DeviceCache (SharedPreferences 权益快照)"]
+        CL["ConsumableLedger (消耗品已发货未 Consume 账本)"]
+        BA["BillingAbstract (统一接口抽象)"]
+        GB["GoogleBillingWrapper (BillingClient 封装)"]
+        BC["Google Play Billing Library"]
     end
 
     VM --> PK
@@ -47,81 +55,56 @@ flowchart TB
     GB --> BC
 ```
 
-| 组件 | 职责 |
-|------|------|
-| `PayKit` | 对外 API：配置、查询、购买、同步、恢复 |
-| `GoogleBillingWrapper` | 连接商店、查询商品/订单、launchBillingFlow、ack/consume |
-| `CustomerInfoHelper` | 按配置三分法归类订阅 / 消耗 / 非消耗 |
-| `DeviceCache` | `CustomerInfo` 本地快照（秒开） |
-| `ConsumableLedger` | 消耗品「已发货待 consume」落盘，防掉单与重复发货 |
-| `PurchaseVerifier` | 发货前验单钩子；默认不联网 |
-
-### 初始化与同步
+### 购买核心时序
 
 ```mermaid
 sequenceDiagram
-    participant App as 宿主
+    autonumber
+    actor User as 用户
+    participant App as 宿主 App
     participant PK as PayKit
-    participant GB as Billing
-    participant Cache as DeviceCache
+    participant GB as BillingClient
+    participant CL as ConsumableLedger
+    participant Verifier as PurchaseVerifier
 
-    App->>PK: configure(context, config)
-    PK->>GB: startConnection
-    GB-->>PK: onConnected
-    PK->>GB: queryPurchases SUBS ∥ INAPP
-    GB-->>PK: StoreTransaction 列表
-    Note over PK: PURCHASED：订阅/非消耗 acknowledge<br/>账本已履约的消耗品 consume
-    PK->>Cache: 写入 CustomerInfo
-    PK-->>App: UpdatedCustomerInfoListener（主线程）
-```
-
-### 购买流程
-
-```mermaid
-flowchart TD
-    A["purchase(activity, product, callback)"] --> B{已有进行中购买?}
-    B -->|是| C["onError PURCHASE_IN_PROGRESS"]
-    B -->|否| D["launchBillingFlow"]
-    D --> E["onPurchasesUpdated"]
-    E --> F{purchaseState}
-    F -->|PENDING| G["onPending 勿发货"]
-    F -->|PURCHASED| H["syncPurchases"]
-    H --> I["PurchaseVerifier.verify"]
-    I -->|失败| J["onError VERIFICATION_FAILED"]
-    I -->|成功| K{消耗品?}
-    K -->|是| L["写入 ConsumableLedger"]
-    K -->|否| M["acknowledge 已在 sync 中处理"]
-    L --> N["onCompleted 宿主发货"]
-    M --> N
-    N --> O{消耗品?}
-    O -->|是| P["consume；失败留账本下次 sync 重试"]
-    O -->|否| Q["结束"]
-    P --> Q
-```
-
-### 商品类型与确认方式
-
-配置必须声明类型，补单才能选对 API（**勿**仅凭 `INAPP` 判断是否消耗）：
-
-```mermaid
-flowchart LR
-    CFG["PayKitConfiguration"] --> S["subsProductIds → SUBS<br/>acknowledgePurchase"]
-    CFG --> C["consumableProductIds → INAPP<br/>consumePurchase"]
-    CFG --> N["nonConsumableProductIds → INAPP<br/>acknowledgePurchase"]
+    User->>App: 点击购买商品
+    App->>PK: purchase(activity, storeProduct, callback)
+    Note over PK: 校验并发锁 (已有进行中则抛出 PURCHASE_IN_PROGRESS)
+    PK->>GB: launchBillingFlow(activity, params)
+    GB-->>User: 弹出 Google Play 官方收银台
+    User->>GB: 完成支付 (或取消)
+    GB-->>PK: onPurchasesUpdated (PURCHASED)
+    PK->>Verifier: verify(storeTransaction)
+    alt 验证通过
+        alt 消耗型商品 (Consumable)
+            PK->>CL: 写入履约账本 (落盘已发货记录)
+            PK-->>App: callback.onCompleted(txn, customerInfo) [主线程]
+            Note over App: 宿主发放金币/道具
+            PK->>GB: consumePurchase(purchaseToken)
+            PK->>CL: 消耗成功，清除账本记录
+        else 订阅或非消耗品 (Subscription / Non-Consumable)
+            PK->>GB: acknowledgePurchase(purchaseToken)
+            PK-->>App: callback.onCompleted(txn, customerInfo) [主线程]
+            Note over App: 宿主解锁会员/永久权益
+        end
+    else 验证失败
+        PK-->>App: callback.onError(VERIFICATION_FAILED) [主线程]
+    end
 ```
 
 ---
 
-## 🚀 快速集成
+## 📦 集成方式
 
-### 步骤 1：添加依赖
+### 方式一：JitPack（推荐）
 
-**方式 A：JitPack（推荐）**
+#### 1. 配置仓库源
 
-在 `settings.gradle.kts` 加入仓库：
+在项目根目录 `settings.gradle.kts` 中添加 JitPack 仓库：
 
 ```kotlin
 dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
@@ -130,17 +113,24 @@ dependencyResolutionManagement {
 }
 ```
 
-在 `app/build.gradle.kts` 添加依赖（版本用 Git Tag，如 `v1.0.0`）：
+#### 2. 添加依赖
+
+在业务模块（如 `app/build.gradle.kts`）中添加依赖：
 
 ```kotlin
 dependencies {
-    implementation("com.github.e-hai:PayKit-Android:v1.0.0")
+    // 引入 PayKit-Android 最新稳定版
+    implementation("com.github.e-hai:PayKit-Android:1.0.0")
 }
 ```
 
-> Billing 依赖已由 SDK 传递引入，宿主一般不必再单独声明。
+> **注意**：SDK 已传递引入官方 `com.android.billingclient:billing-ktx` 与清单权限 `<uses-permission android:name="com.android.vending.BILLING" />`，宿主无需重复声明。
 
-**方式 B：本地模块**
+---
+
+### 方式二：本地子模块源码集成
+
+将 `:pay` 模块放入您的 Android 项目中，在 `settings.gradle.kts` 引入 `include(":pay")`，随后在应用模块中引入：
 
 ```kotlin
 dependencies {
@@ -148,462 +138,323 @@ dependencies {
 }
 ```
 
-### 步骤 2：配置商品 ID
+---
 
-在 Google Play Console 创建商品后，记录商品 ID：
+## 🚀 快速上手
 
-```kotlin
-// Constants.kt — Demo 与 Play Console 对齐的示例
-object Constants {
-    // 一个订阅 product 对应一个权益档；周期为 base plan
-    const val SUBS_PLUS = "subs_plus"
-    const val SUBS_PRO = "subs_pro"
+### 1. 配置商品分类与初始化
 
-    // 消耗 / 非消耗（与 Demo applicationId 下 Console 商品一致）
-    const val OTP_GAME_SKIN_3DAY = "consumable_product_01"
-    const val OTP_GAME_SKIN_PERMANENT = "one_time_product_01"
-}
-```
-
-### 步骤 3：初始化 SDK
-
-在 Application 或 Activity 中初始化：
+在您的 `Application.onCreate` 或入口处初始化 `PayKit`：
 
 ```kotlin
-class MainViewModel(private val app: Application) : AndroidViewModel(app) {
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        initPayKit()
+    }
 
-    fun init() {
-        // 1. 配置商品类型
+    private fun initPayKit() {
+        // 声明商品分类（必须与 Google Play Console 后台创建的 ID 一致）
         val configuration = PayKitConfiguration(
-            subsProductIds = setOf(
-                Constants.SUBS_PLUS,
-                Constants.SUBS_PRO
-            ),
-            consumableProductIds = setOf(
-                Constants.OTP_GAME_SKIN_3DAY
-            ),
-            nonConsumableProductIds = setOf(
-                Constants.OTP_GAME_SKIN_PERMANENT
-            )
+            // 订阅商品 ID (自动执行 Acknowledge)
+            subsProductIds = setOf("subs_plus", "subs_pro"),
+            // 消耗型商品 ID (自动入账并在发货后执行 Consume)
+            consumableProductIds = setOf("coins_100", "coins_500"),
+            // 非消耗型永久商品 ID (自动执行 Acknowledge)
+            nonConsumableProductIds = setOf("lifetime_pass")
         )
 
-        // 2. 初始化 SDK
-        PayKit.configure(app, configuration)
-        
-        // 3. 监听权益状态变化（可选）
+        // 配置并启动连接
+        PayKit.configure(this, configuration)
+
+        // 注册全局权益变化监听（可选，回调运行在主线程）
         PayKit.shared.setUpdatedCustomerInfoListener(object : UpdatedCustomerInfoListener {
             override fun onReceived(customerInfo: CustomerInfo) {
-                Log.d("PayKit", "权益状态更新: ${customerInfo.activeSubscriptions}")
-                updateUiWithCustomerInfo(customerInfo)
+                val hasPro = "subs_pro" in customerInfo.activeSubscriptions
+                val hasLifetime = "lifetime_pass" in customerInfo.nonConsumablePurchases
+                Log.d("PayKit", "用户权益更新: Pro=$hasPro, Lifetime=$hasLifetime")
             }
         })
     }
-    
-    private fun updateUiWithCustomerInfo(info: CustomerInfo) {
-        val tier = when {
-            Constants.SUBS_PRO in info.activeSubscriptions -> "Pro"
-            Constants.SUBS_PLUS in info.activeSubscriptions -> "Plus"
-            else -> "Free"
+}
+```
+
+---
+
+### 2. 查询商品详情与展示价格
+
+在展示购买页面前，调用 `getProducts` 获取带本地币种符号的展示价格与优惠信息：
+
+```kotlin
+viewModelScope.launch {
+    val productIds = setOf("subs_pro", "coins_100", "lifetime_pass")
+    val result = PayKit.shared.getProducts(productIds)
+
+    result.onSuccess { products: List<StoreProduct> ->
+        for (product in products) {
+            Log.d("PayKit", "商品ID: ${product.productId}")
+            Log.d("PayKit", "标题: ${product.title}")
+            Log.d("PayKit", "格式化价格: ${product.price}") // 如 "$4.99" 或 "¥30.00"
+            Log.d("PayKit", "是否有免费试用: ${product.hasFreeTrial}")
         }
-        // 更新 UI
+    }.onFailure { error ->
+        Log.e("PayKit", "查询商品失败: ${error.message} [Code: ${error.code}]")
     }
 }
 ```
 
 ---
 
-## 💡 使用指南
+### 3. 发起购买流程
 
-### 场景 1：查询商品详情
-
-```kotlin
-viewModelScope.launch {
-    try {
-        val productIds = setOf(
-            Constants.SUBS_PLUS,
-            Constants.SUBS_PRO,
-            Constants.OTP_GAME_SKIN_3DAY
-        )
-        
-        val result = PayKit.shared.getProducts(productIds)
-        
-        result.onSuccess { products ->
-            products.forEach { product ->
-                Log.d("PayKit", "商品: ${product.productId}")
-                Log.d("PayKit", "价格: ${product.price}")
-                Log.d("PayKit", "标题: ${product.title}")
-            }
-        }.onFailure { error ->
-            Log.e("PayKit", "查询失败: ${error.message}")
-        }
-    } catch (e: Exception) {
-        Log.e("PayKit", "查询异常: ${e.message}")
-    }
-}
-```
-
-### 场景 2：发起支付
+在 Activity 中调起支付（支持单次内购、订阅及消耗品）：
 
 ```kotlin
-fun purchaseProduct(activity: Activity, productId: String) {
-    viewModelScope.launch {
-        try {
-            // 1. 查询商品详情
-            val result = PayKit.shared.getProducts(setOf(productId))
-            
-            result.onSuccess { products ->
-                val product = products.firstOrNull()
-                if (product != null) {
-                    // 2. 发起支付
-                    PayKit.shared.purchase(activity, product, object : PurchaseCallback {
-                        override fun onCompleted(
-                            storeTransaction: StoreTransaction,
-                            customerInfo: CustomerInfo
-                        ) {
-                            Log.d("PayKit", "支付成功: ${storeTransaction.orderId}")
-                            // 支付成功，SDK 已自动确认订单，可以立即发放权益
-                        }
+fun onBuyClicked(activity: Activity, product: StoreProduct) {
+    PayKit.shared.purchase(
+        activity = activity,
+        storeProduct = product,
+        callback = object : PurchaseCallback {
+            override fun onCompleted(
+                storeTransaction: StoreTransaction,
+                customerInfo: CustomerInfo
+            ) {
+                // 支付成功！回调运行在主线程
+                Log.d("PayKit", "购买成功，订单号: ${storeTransaction.orderId}")
 
-                        override fun onPending(storeTransaction: StoreTransaction) {
-                            Log.d("PayKit", "支付待确认: ${storeTransaction.orderId}")
-                            // 勿发货；付清后调用 restorePurchases() 或下次启动同步即可
-                        }
-
-                        override fun onError(error: PayKitError, userCancelled: Boolean) {
-                            if (userCancelled) {
-                                Log.d("PayKit", "用户取消支付")
-                            } else {
-                                Log.e("PayKit", "支付失败: ${error.message}")
-                            }
-                        }
-                    })
+                if (product.productId in PayKit.configuration.consumableProductIds) {
+                    // 1. 若为消耗型商品，在此处给用户发货（发放金币/道具）
+                    grantVirtualCurrency(100)
+                    // SDK 会在后台自动完成 consume 并清理账本；若网络故障未完成，下次启动时会自动补单
+                } else {
+                    // 2. 订阅或非消耗品，SDK 已自动完成 Acknowledge 确认
+                    updateUserVipStatus(customerInfo)
                 }
-            }.onFailure { error ->
-                Log.e("PayKit", "查询商品失败: ${error.message}")
             }
-        } catch (e: Exception) {
-            Log.e("PayKit", "支付异常: ${e.message}")
+
+            override fun onPending(storeTransaction: StoreTransaction) {
+                // 等待支付确认（如现金充值/便利店支付/银行转账），切勿此时发货
+                Log.d("PayKit", "交易待支付确认，订单号: ${storeTransaction.orderId}")
+                Toast.makeText(activity, "支付处理中，请稍候...", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onError(error: PayKitError, userCancelled: Boolean) {
+                // 购买异常或取消
+                if (userCancelled) {
+                    Log.d("PayKit", "用户取消了支付")
+                } else {
+                    Log.e("PayKit", "支付异常: ${error.message} [${error.code}]")
+                }
+            }
         }
-    }
-}
-```
-
-升降级 / 同商品换档时传入 `SubscriptionReplacement`（可用 `findActiveSubscription` 取旧 token）：
-
-```kotlin
-val old = PayKit.shared.findActiveSubscription("subs_plus")
-val replacement = old?.let {
-    SubscriptionReplacement(
-        oldProductId = "subs_plus",
-        oldPurchaseToken = it.purchaseToken
     )
 }
-PayKit.shared.purchase(activity, proProduct, callback, subscriptionReplacement = replacement)
 ```
 
-### 场景 3：检查用户权益
+---
+
+### 4. 获取用户当前权益（冷启动秒开）
 
 ```kotlin
-// 方法 1：强制同步后查询（默认）
-viewModelScope.launch {
-    val customerInfo = PayKit.shared.getCustomerInfo() // forceSync = true
-    if (customerInfo != null) {
-        val tier = when {
-            Constants.SUBS_PRO in customerInfo.activeSubscriptions -> "Pro"
-            Constants.SUBS_PLUS in customerInfo.activeSubscriptions -> "Plus"
-            else -> "Free"
-        }
-        val pending = customerInfo.pendingPurchases
-        Log.d("PayKit", "当前档位: $tier, 待确认: ${pending.size}")
-    }
-}
+// 方式 A：只读本地缓存（首屏秒开，零网络延迟）
+val cachedInfo: CustomerInfo? = PayKit.shared.getCustomerInfo(forceSync = false)
+val isVip = cachedInfo?.activeSubscriptions?.contains("subs_pro") == true
 
-// 方法 2：只读本地缓存（弱网秒开）
+// 方式 B：强制从 Google Play 商店后台对账同步（默认）
 viewModelScope.launch {
-    val cached = PayKit.shared.getCustomerInfo(forceSync = false)
+    val freshInfo: CustomerInfo? = PayKit.shared.getCustomerInfo(forceSync = true)
 }
-
-// 方法 3：通过监听器自动接收更新（已在初始化时设置）
 ```
 
-### 场景 4：恢复购买 / 补单
+---
 
-Google 没有独立的「恢复购买」系统 API；SDK 通过重新 `queryPurchases` 实现该产品能力。
+### 5. 恢复购买与同步
+
+Google Play 官方无需用户输入密码单独恢复购买，只需调用 `restorePurchases()` 即可自动对账并激活权益：
 
 ```kotlin
-// 「恢复购买」按钮
-fun onRestoreClick() {
+fun onRestorePurchasesClicked() {
     viewModelScope.launch {
         PayKit.shared.restorePurchases()
             .onSuccess { info ->
-                Log.d("PayKit", "恢复完成: ${info.activeSubscriptions}")
+                Toast.makeText(context, "购买已恢复", Toast.LENGTH_SHORT).show()
             }
-            .onFailure { e ->
-                Log.e("PayKit", "恢复失败: ${e.message}")
+            .onFailure { error ->
+                Toast.makeText(context, "恢复失败: ${error.message}", Toast.LENGTH_SHORT).show()
             }
     }
 }
-
-// 与 restorePurchases() 等价，语义偏「同步/补单」
-suspend fun refresh() {
-    PayKit.shared.syncPurchases()
-}
 ```
-
-**最佳实践：**
-- 启动时 SDK 连接成功后会**自动 sync**；宿主用 `getCustomerInfo(forceSync = false)` 秒开 + `UpdatedCustomerInfoListener` 收同步结果即可，**不必再 forceSync 一次**
-- 提供「恢复购买」按钮供用户手动触发（调用 `restorePurchases()`）
-- 已消耗的消耗型商品无法恢复
 
 ---
 
-## 🏗️ 核心 API
+### 6. 消耗品启动补单（防掉单机制）
 
-### PayKit 单例
+当用户购买消耗型商品并支付成功后，若遇 App 崩溃、进程被系统强杀或网络闪断导致未能及时完成发货，PayKit 的 `ConsumableLedger` 会记录未履约订单。
+
+可在启动后检查并进行补偿发货：
 
 ```kotlin
-val payKit = PayKit.shared
+viewModelScope.launch {
+    val info = PayKit.shared.getCustomerInfo(forceSync = true) ?: return@launch
 
-suspend fun getProducts(productIds: Set<String>): Result<List<StoreProduct>>
-suspend fun getCustomerInfo(forceSync: Boolean = true): CustomerInfo?
+    // 遍历所有待发货的消耗品记录
+    for (unfulfilled in info.unfulfilledConsumables) {
+        val token = unfulfilled.purchaseToken
+        Log.w("PayKit", "发现未履约消耗品订单: ${unfulfilled.orderId}, 商品: ${unfulfilled.productIds}")
 
-/** 同步购买 / 补单 */
-suspend fun syncPurchases(): Result<CustomerInfo>
-/** 「恢复购买」按钮；实现同 syncPurchases */
-suspend fun restorePurchases(): Result<CustomerInfo>
-
-suspend fun getPendingPurchases(): List<StoreTransaction>
-suspend fun getPurchaseHistory(): List<StoreTransaction>
-fun findTransaction(purchaseToken: String): StoreTransaction?
-fun findActiveSubscription(productId: String): StoreTransaction?
-
-fun purchase(
-    activity: Activity,
-    storeProduct: StoreProduct,
-    callback: PurchaseCallback,
-    isOfferPersonalized: Boolean = ...,
-    subscriptionReplacement: SubscriptionReplacement? = null
-)
-fun setUpdatedCustomerInfoListener(listener: UpdatedCustomerInfoListener?)
-fun setPurchaseVerifier(verifier: PurchaseVerifier)  // 默认 Local；可换服务端验单
+        // 1. 业务发货逻辑
+        val success = deliverItemToUser(unfulfilled.productIds)
+        if (success) {
+            // 2. 标记履约完成，通知 SDK 销毁账本并 Consume 释放商品
+            PayKit.shared.markConsumableFulfilled(token)
+        }
+    }
+}
 ```
 
-### 服务端验单扩展（可选）
+---
+
+### 7. 订阅升降级与换档
+
+如需在同一订阅组内换档或从月付升级到年付：
 
 ```kotlin
-PayKit.shared.setPurchaseVerifier(PurchaseVerifier { txn ->
-    runCatching { api.verify(txn.purchaseToken, txn.productIds) }
-        .fold(
-            onSuccess = { Result.success(Unit) },
-            onFailure = {
-                Result.failure(
-                    PayKitError(ErrorCode.VERIFICATION_FAILED, it.message ?: "verify fail")
-                )
-            }
+val activeSub = PayKit.shared.findActiveSubscription("subs_plus")
+if (activeSub != null) {
+    val replacement = SubscriptionReplacement(
+        oldProductId = "subs_plus",
+        oldPurchaseToken = activeSub.purchaseToken,
+        // 可选指定更换模式（如立即替换并折算退款，或当前周期结束后生效）
+        prorationMode = com.android.billingclient.api.BillingFlowParams.SubscriptionUpdateParams.ReplacementMode.CHARGE_FULL_PRICE
+    )
+
+    PayKit.shared.purchase(
+        activity = activity,
+        storeProduct = newProProduct,
+        callback = callback,
+        subscriptionReplacement = replacement
+    )
+}
+```
+
+---
+
+### 8. 服务端验单扩展（可选）
+
+默认使用纯本地校验。如需在发货前将收据提交至自有服务器验签：
+
+```kotlin
+PayKit.shared.setPurchaseVerifier(PurchaseVerifier { txn: StoreTransaction ->
+    try {
+        // 调用您的服务端 HTTP 接口验签
+        val response = myApiService.verifyGooglePurchase(
+            orderId = txn.orderId,
+            purchaseToken = txn.purchaseToken,
+            productIds = txn.productIds,
+            signature = txn.signature,
+            originalJson = txn.originalJson
         )
+        if (response.isSuccess) {
+            Result.success(Unit)
+        } else {
+            Result.failure(PayKitError(ErrorCode.VERIFICATION_FAILED, "服务端验单未通过"))
+        }
+    } catch (e: Exception) {
+        Result.failure(PayKitError(ErrorCode.NETWORK_ERROR, "验单网络超时"))
+    }
 })
 ```
 
-默认不配置则行为与原先「纯本地」一致。
+---
 
-```kotlin
-// 更换配置或测试前：
-PayKit.reset()                 // 默认同时清空本地权益缓存
-PayKit.reset(clearCache = false)
-PayKit.configure(context, newConfiguration)
+## 🧪 Google Play 沙盒与测试指南
+
+不同于 iOS 的离线 `.storekit` 文件，Google Play Billing 依赖设备上的 Google Play 商店服务（`com.android.vending`）与云端通信。完整测试流程如下：
+
+### 1. 前置准备（仅需配置一次）
+1. **开发者账号**：在 [Google Play Console](https://play.google.com/console) 创建应用。应用包名（`applicationId`）须与代码完全一致。
+2. **首次上传 AAB**：给应用打一个 Release 签名包上传到 **内部测试（Internal Testing）** 轨道（内部测试无需等待 Google 官方人工审核，仅用于注册应用元数据与签名）。
+3. **创建商品与基础方案**：
+   - 在 Play Console 侧边栏的 **“创收” $\rightarrow$ “商品”** 中创建订阅或应用内商品。
+   - 订阅商品须至少包含一个已激活的 **Base Plan（基础方案）**。
+4. **配置许可测试人员（License Testers）**：
+   - 前往 **Play Console $\rightarrow$ 设置 $\rightarrow$ 许可测试（License testing）**。
+   - 添加您的测试 Gmail 账号。
+   - “许可响应”选择 `RESPOND_NORMALLY`。
+   - “测试购买”选择 **“测试卡，始终批准”**（测试时不扣除真实费用）。
+
+### 2. 本地开发与联调
+- 在安装有 Google Play 服务的真机或模拟器上，登录已加入许可测试的 Gmail 账号。
+- **直接通过 Android Studio 点击 Run/Debug 安装调试 APK**（只要包名与上传的 AAB 一致，即可直接本地联调）。
+- 调起购买时，系统弹窗将带有 **“这是测试订单，不会向你收费”** 提示。
+- **订阅周期加速测试**：测试沙盒中订阅会自动缩短（例如 1 个月订阅缩短为每 5 分钟自动续费一次，最多续费 6 次后自动取消）。
+
+### 3. 官方辅助工具：Play Billing Lab
+推荐在测试设备上通过 Google Play 商店安装官方提供的 **Play Billing Lab** 应用。可在不改动代码的情况下模拟：
+- 重置免费试用资格
+- 模拟扣款失败（Payment Declines）与宽限期（Grace Period）
+- 跨国家/地区与本地化货币定价测试
+
+---
+
+## 🛡️ 混淆规则 (ProGuard / R8)
+
+SDK 已内置 AAR 混淆消费规则（[`consumer-rules.pro`](file:///Users/a/Develop/project/android/PayKit-Android/pay/consumer-rules.pro)），宿主开启 `minifyEnabled = true` 时会自动保留所需模型与接口，无需额外手动配置。规则如下：
+
+```proguard
+-keep class com.kit.pay.PayKit { *; }
+-keep class com.kit.pay.models.** { *; }
+-keep class com.kit.pay.interfaces.** { *; }
+-keepclassmembers class * implements com.kit.pay.interfaces.PurchaseCallback { *; }
+-keepclassmembers class * implements com.kit.pay.interfaces.UpdatedCustomerInfoListener { *; }
+-keep class com.android.billingclient.api.** { *; }
+-dontwarn com.android.billingclient.api.**
 ```
 
-### 数据模型
+---
 
-#### CustomerInfo - 用户权益信息
+## 📊 数据模型与错误码
+
+### CustomerInfo
 ```kotlin
 data class CustomerInfo(
-    val activeSubscriptions: Set<String>,
-    val nonConsumablePurchases: Set<String>,
-    val allPurchaseRecords: List<StoreTransaction>,   // 当前商店快照
-    val unfulfilledConsumables: List<StoreTransaction> // 待发货消耗品
+    val activeSubscriptions: Set<String>,      // 当前生效中的订阅商品 ID 集合
+    val nonConsumablePurchases: Set<String>,   // 永久拥有的非消耗品商品 ID 集合
+    val allPurchaseRecords: List<StoreTransaction>, // 原始购买记录列表
+    val unfulfilledConsumables: List<StoreTransaction> // 待发货的消耗品列表
 )
 ```
 
-消耗品：购买流程中 `onCompleted` 内发货即可（SDK 随后 consume；失败会留履约账本重试）。  
-启动发现的未履约消耗品：
-
-```kotlin
-info.unfulfilledConsumables.forEach { txn ->
-    // 发货…
-    PayKit.shared.markConsumableFulfilled(txn.purchaseToken)
-}
-```
-
-#### StoreProduct - 商品详情
-```kotlin
-data class StoreProduct(
-    val productId: String,
-    val type: ProductType,
-    val title: String,
-    val description: String,
-    val price: String,                 // 展示价：订阅优先为正价（试用后）
-    val priceAmountMicros: Long,
-    val priceCurrencyCode: String,
-    val subscriptionToken: String?,    // Google offerToken（订阅必填；INAPP 多 offer 亦需）
-    val basePlanId: String? = null,
-    val offerId: String? = null,
-    val hasFreeTrial: Boolean = false,
-    val freeTrialPeriod: String? = null  // 如 P1W
-)
-```
-
-#### StoreTransaction - 交易记录
-```kotlin
-data class StoreTransaction(
-    val orderId: String,
-    val productIds: List<String>,
-    val purchaseTime: Long,
-    val purchaseToken: String,
-    val isAcknowledged: Boolean,
-    val purchaseState: PurchaseState,  // PURCHASED / PENDING / UNSPECIFIED
-    val isAutoRenewing: Boolean = false,
-    val isSuspended: Boolean = false,
-    val signature: String = "",        // Play 签名，供服务端验签
-    val originalJson: String = ""      // 原始购买 JSON
-)
-```
-
-#### ErrorCode - 错误码
-```kotlin
-enum class ErrorCode {
-    STORE_PROBLEM,
-    PURCHASE_CANCELLED,
-    PURCHASE_PENDING,        // 语义码；待确认走 onPending
-    PURCHASE_IN_PROGRESS,    // 已有购买进行中，二次 purchase 被拒绝
-    PURCHASE_NOT_ALLOWED,    // Billing 不可用 / 特性不支持
-    PRODUCT_NOT_AVAILABLE,
-    ITEM_ALREADY_OWNED,      // 已拥有，应走升降级或恢复
-    VERIFICATION_FAILED,     // PurchaseVerifier 验单失败
-    NETWORK_ERROR,
-    UNKNOWN
-}
-```
-### 枚举类型
-
-#### ProductType - 商品类型
-```kotlin
-enum class ProductType {
-    SUBS,   // 订阅商品
-    INAPP   // 一次性商品
-}
-```
-
-#### PurchaseState - 订单支付状态
-```kotlin
-enum class PurchaseState {
-    PURCHASED,    // 已支付，可确认并发货
-    PENDING,      // 待确认，勿发货
-    UNSPECIFIED   // 无效/未知
-}
-```
+### ErrorCode 错误枚举
+| 错误码 | 说明 | 应对建议 |
+|---|---|---|
+| `PURCHASE_CANCELLED` | 用户主动取消支付 | 无需特殊处理，界面恢复即可 |
+| `PURCHASE_IN_PROGRESS` | 已有一笔购买在进行中 | 防止用户暴力多击，忽略或轻提示 |
+| `ITEM_ALREADY_OWNED` | 商品已拥有 | 引导用户恢复购买或执行升降级换档 |
+| `PRODUCT_NOT_AVAILABLE`| 商品未找到或未激活 | 检查 Console 后台商品 ID、Base Plan 状态及发布轨道 |
+| `STORE_PROBLEM` | Google Play 商店内部服务错误 | 提示用户稍后重试或检查 Play 商店更新 |
+| `VERIFICATION_FAILED` | 自定义验单未通过 | 提示订单校验失败，检查服务端签名配置 |
+| `NETWORK_ERROR` | 网络不可用 | 提示用户检查网络连接 |
 
 ---
 
-## 📋 商品类型说明
+## 🛠️ 构建与环境要求
 
-### 订阅商品 (SUBS)
-- **特点**：周期性扣费（包月/包年）
-- **配置**：在 Google Play Console 创建订阅计划
-- **处理**：SDK 自动调用 `acknowledgePurchase` 确认
-- **示例**：会员订阅、高级功能解锁
-
-### 消耗型商品 (INAPP - Consumable)
-- **特点**：消费后可再次购买；Google 在 consume 成功后不再返回该单
-- **处理**：发货 → 履约账本 → `consumePurchase`；失败可重试，避免重复发货
-- **示例**：游戏金币、临时道具
-
-### 非消耗型商品 (INAPP - Non-consumable)
-- **特点**：永久拥有，不可重复购买
-- **处理**：SDK 自动调用 `acknowledgePurchase` 确认
-- **示例**：永久皮肤、去广告
+- **Min SDK**: 21 (Android 5.0+)
+- **Compile SDK**: 37
+- **Target SDK**: 35 / 36 / 37
+- **Kotlin**: 2.3+ / 2.4+
+- **Gradle**: 9.8.2+
+- **AGP**: 9.1.0+ / 9.1.1+
+- **JDK**: Java 17+ (兼容 Java 25 / JBR 25)
 
 ---
 
-## ⚠️ 注意事项
+## 📄 License
 
-1. **测试环境**：
-   - 在 Google Play Console 配置测试账号
-   - 使用内部测试轨道发布 APK
-   - 确保商品已上架（即使是草稿状态也可测试）
+```
+MIT License
 
-2. **商品 ID 匹配**：
-   - 代码中的商品 ID 必须与 Google Play Console 完全一致
-   - 区分大小写
-
-3. **订单确认**：
-   - SDK 仅对 `PURCHASED` 状态自动确认，无需手动处理
-   - `PENDING`（待支付确认）不会 acknowledge / consume，也不会发放权益
-   - 订阅和非消耗商品调用 `acknowledgePurchase`
-   - 消耗商品调用 `consumePurchase`
-
-4. **线程安全**：
-   - 所有 suspend 函数应在协程中调用
-   - 推荐使用 `viewModelScope.launch`
-   - `PurchaseCallback` / `UpdatedCustomerInfoListener` **已在主线程回调**，可直接更新 UI
-   - **购买**：同一时刻只允许一笔进行中；再次 `purchase` 会立刻 `onError(PURCHASE_IN_PROGRESS)`，不会顶掉前一次回调
-
-5. **欧盟个性化报价**：
-   - 若价格经自动化决策对用户个性化，购买时需声明，Play 会在支付页展示披露文案
-   - 配置默认值：`PayKitConfiguration(isOfferPersonalizedDefault = true)`
-   - 或单次覆盖：`purchase(activity, product, callback, isOfferPersonalized = true)`
-   - 未做个性化定价时可保持默认 `false`
-
----
-
-## 🔧 常见问题
-
-### Q1: 查询商品返回空列表？
-**A:** 检查以下几点：
-- 商品 ID 是否正确
-- 应用签名是否与 Google Play Console 一致
-- 测试账号是否配置正确
-- 商品是否已创建（即使是草稿状态）
-
-### Q2: 如何处理跨设备购买？
-**A:** Google Play 会自动同步购买记录。使用相同 Google 账号登录的设备可以通过 `getCustomerInfo()` 恢复购买。
-
-### Q3: 订阅过期后如何处理？
-**A:** 定期调用 `getCustomerInfo()` 检查订阅状态，SDK 会自动更新 `activeSubscriptions`。
-
-### Q4: 支付成功后如何发放权益？
-**A:** 在 `PurchaseCallback.onCompleted` 中发放权益。订阅/非消耗由 SDK acknowledge；消耗品请在回调内发货，SDK 会随后 consume（失败留账本重试）。启动时检查 `unfulfilledConsumables` 并 `markConsumableFulfilled`。
-
-### Q5: 收到 `onPending` 怎么办？
-**A:** 表示支付尚未完成（如现金/银行转账）。不要发货；提示用户等待确认。支付完成后调用 `restorePurchases()` / `syncPurchases()` 或下次启动自动同步即可补单发货。
-
-### Q6: 为什么需要恢复购买？
-**A:** Google 无独立 Restore API；`restorePurchases()` 会重新查询当前账号购买并更新本地权益，用于：
-- 换机 / 重装后找回订阅与非消耗品
-- 用户在支付过程中应用被强退导致的补单
-- `PENDING` 订单后续变为 `PURCHASED`
-- 跨设备同步（同一 Google 账号）
-
-已消耗的消耗型商品无法通过恢复买回。
-
----
-
-## 📦 版本信息
-
-- **Billing Library**: 8.3.0
-- **最低 SDK**: API 21 (Android 5.0)
-- **语言**: Kotlin
-- **架构**: MVVM + Coroutines
-
----
-
-## 📞 技术支持
-
-如有问题，请查看日志输出或联系开发团队。
-
-**关键日志标签：**
-- `PayKit`：SDK 核心（同步、购买、缓存）
-- `PayKit-Billing`：Google Play Billing 交互
-- `PayKit-Sample`：示例 App
-
-Logcat 过滤 `PayKit` 即可看到全部相关日志。消息为 `action key=value` 格式，便于搜索 `syncPurchases`、`purchase`、`acknowledge` 等。
+Copyright (c) 2026 PayKit Open Source Project
+```

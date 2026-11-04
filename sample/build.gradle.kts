@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.kit.pay.sample"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.google.play.billing.samples.onetimepurchases"
