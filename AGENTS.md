@@ -50,7 +50,7 @@ PayKit-Android/
 implementation(project(":pay"))
 ```
 
-JitPack：`jitpack.yml` 只发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-publish`，坐标 `com.github.e-hai:PayKit-Android:<tag>`（如 `1.0.0`）。
+GitHub Packages：通过 `.github/workflows/publish.yml` 自动发布 `:pay`；`pay/build.gradle.kts` 使用 `maven-publish` 发布至 `https://maven.pkg.github.com/e-hai/PayKit-Android`，坐标 `com.github.e-hai:PayKit-Android:<version>`（默认读取 `gradle.properties` 中的 `VERSION_NAME` 或 `-PversionName`）。
 
 ## Build Toolchain
 
@@ -312,11 +312,14 @@ acknowledge fail orderId=... code=6 msg=...
 
 ```bash
 ./gradlew :pay:testDebugUnitTest
-./gradlew :pay:assembleDebug
+./gradlew :pay:bundleReleaseAar
+./gradlew :pay:publishToMavenLocal
 ./gradlew :sample:assembleDebug
 ```
 
-CI：`.github/workflows/ci.yml`（push/PR 到 `main`）。
+CI & Publish：
+- `.github/workflows/ci.yml`（push/PR 到 `main`）：执行单测、Release AAR 构建、本地 Maven 发布验证及 `:sample:assembleDebug`。
+- `.github/workflows/publish.yml`（push 语义化 Tag 如 `1.0.1` 或手动 `workflow_dispatch`）：运行单测后使用 `GITHUB_TOKEN` 发布 AAR 至 GitHub Packages。
 
 ## Related Docs
 

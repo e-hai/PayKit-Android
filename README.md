@@ -1,7 +1,7 @@
 # PayKit-Android
 
 [![Release](https://img.shields.io/badge/Release-1.0.0-blue.svg)](https://github.com/e-hai/PayKit-Android/releases/tag/1.0.0)
-[![JitPack](https://jitpack.io/v/e-hai/PayKit-Android.svg)](https://jitpack.io/#e-hai/PayKit-Android)
+[![GitHub Packages](https://img.shields.io/badge/GitHub%20Packages-1.0.0-blue?logo=github)](https://github.com/e-hai/PayKit-Android/packages)
 [![Platform](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4-purple.svg)](https://kotlinlang.org)
 [![Google Play Billing](https://img.shields.io/badge/BillingClient-9.1.0-orange.svg)](https://developer.android.com/google/play/billing)
@@ -13,7 +13,7 @@
 
 ## 🌟 核心特性
 
-- **现代协程 API**：全面拥抱 Kotlin Coroutines（`suspend` 挂起函数）与 Flow，告别传统 Billing 复杂的多层异步回调地狱。
+- **现代协程 API**：全面拥抱 Kotlin Coroutines（`suspend` 挂起函数），告别传统 Billing 复杂的多层异步回调地狱。
 - **纯本地极速接入**：无需自建鉴权后端，SDK 内置权益计算引擎，开箱即用计算订阅与内购有效状态。
 - **冷启动秒开快照**：基于 `DeviceCache` 的本地持久化权益缓存，App 启动首屏零延迟立即可用。
 - **防掉单履约账本**：针对消耗品（金币/道具）内置 `ConsumableLedger`，发货未 consume 先落盘。应对网络断开、App 强退或进程崩溃，自动在下次启动时对账补单。
@@ -96,11 +96,28 @@ sequenceDiagram
 
 ## 📦 集成方式
 
-### 方式一：JitPack（推荐）
+### 方式一：GitHub Packages（推荐）
 
-#### 1. 配置仓库源
+> 💡 **从 JitPack 迁移提示**：依赖坐标保持 `com.github.e-hai:PayKit-Android:<version>` 不变！只需将仓库源从 `jitpack.io` 替换为 GitHub Packages 并配置 GitHub Token 即可，业务模块代码与依赖声明无需更改。
 
-在项目根目录 `settings.gradle.kts` 中添加 JitPack 仓库：
+#### 1. 配置 GitHub 读取凭证
+
+由于 GitHub Packages 下载 Maven 依赖强制要求身份鉴权（即使仓库公开），接入方需先生成具备 `read:packages` 权限的 Token：
+
+1. 前往 GitHub **Settings $\rightarrow$ Developer settings $\rightarrow$ Personal access tokens $\rightarrow$ Tokens (classic)**。
+2. 点击 **Generate new token (classic)**，勾选 **`read:packages`** 权限并生成 Token。
+3. 在**本机全局** `~/.gradle/gradle.properties` 中写入以下两行（推荐写在用户目录下，避免误提交到版本库）：
+
+```properties
+gpr.user=你的GitHub用户名
+gpr.key=ghp_你的PersonalAccessToken
+```
+
+> CI/CD 构建环境（如 GitHub Actions）也可以直接通过环境变量 `GITHUB_ACTOR`（或 `GITHUB_USER`）与 `GITHUB_TOKEN` 传入，无需写入文件。
+
+#### 2. 配置仓库源 (`settings.gradle.kts`)
+
+在项目根目录 `settings.gradle.kts` 中加入 GitHub Packages Maven 仓库：
 
 ```kotlin
 dependencyResolutionManagement {
@@ -108,20 +125,76 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") }
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/e-hai/PayKit-Android")
+            credentials {
+                username = providers.gradleProperty("gpr.user")
+                    .orElse(providers.environmentVariable("GITHUB_USER"))
+                    .orElse(providers.environmentVariable("GITHUB_ACTOR"))
+                    .orNull
+                password = providers.gradleProperty("gpr.key")
+                    .orElse(providers.environmentVariable("GITHUB_TOKEN"))
+                    .orNull
+            }
+        }
     }
 }
 ```
 
-#### 2. 添加依赖
+<details>
+<summary>如果你的凭证放在项目本地 <code>local.properties</code> 中（点击展开写法）</summary>
 
-在业务模块（如 `app/build.gradle.kts`）中添加依赖：
+```kotlin
+import java.util.Properties
+
+val localProps = Properties().apply {
+    val file = rootDir.resolve("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/e-hai/PayKit-Android")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orNull
+                    ?: localProps.getProperty("gpr.user")
+                    ?: System.getenv("GITHUB_USER")
+                    ?: System.getenv("GITHUB_ACTOR")
+                password = providers.gradleProperty("gpr.key").orNull
+                    ?: localProps.getProperty("gpr.key")
+                    ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
+}
+```
+
+</details>
+
+#### 3. 添加依赖
+
+在应用模块（如 `app/build.gradle.kts`）中添加依赖：
 
 ```kotlin
 dependencies {
-    // 引入 PayKit-Android 最新稳定版
     implementation("com.github.e-hai:PayKit-Android:1.0.0")
 }
+```
+
+如果使用 Gradle Version Catalog（`gradle/libs.versions.toml`）：
+
+```toml
+[versions]
+paykit = "1.0.0"
+
+[libraries]
+paykit = { group = "com.github.e-hai", name = "PayKit-Android", version.ref = "paykit" }
 ```
 
 > **注意**：SDK 已传递引入官方 `com.android.billingclient:billing-ktx` 与清单权限 `<uses-permission android:name="com.android.vending.BILLING" />`，宿主无需重复声明。
@@ -144,9 +217,19 @@ dependencies {
 
 ### 1. 配置商品分类与初始化
 
-在您的 `Application.onCreate` 或入口处初始化 `PayKit`：
+在您的 `Application.onCreate` 中初始化 `PayKit`（确保在主线程调用）：
 
 ```kotlin
+object ProductIds {
+    const val SUBS_PLUS = "subs_plus"
+    const val SUBS_PRO = "subs_pro"
+    const val COINS_100 = "coins_100"
+    const val COINS_500 = "coins_500"
+    const val LIFETIME_PASS = "lifetime_pass"
+
+    val CONSUMABLES = setOf(COINS_100, COINS_500)
+}
+
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
@@ -157,11 +240,11 @@ class MyApplication : Application() {
         // 声明商品分类（必须与 Google Play Console 后台创建的 ID 一致）
         val configuration = PayKitConfiguration(
             // 订阅商品 ID (自动执行 Acknowledge)
-            subsProductIds = setOf("subs_plus", "subs_pro"),
+            subsProductIds = setOf(ProductIds.SUBS_PLUS, ProductIds.SUBS_PRO),
             // 消耗型商品 ID (自动入账并在发货后执行 Consume)
-            consumableProductIds = setOf("coins_100", "coins_500"),
+            consumableProductIds = ProductIds.CONSUMABLES,
             // 非消耗型永久商品 ID (自动执行 Acknowledge)
-            nonConsumableProductIds = setOf("lifetime_pass")
+            nonConsumableProductIds = setOf(ProductIds.LIFETIME_PASS)
         )
 
         // 配置并启动连接
@@ -170,8 +253,8 @@ class MyApplication : Application() {
         // 注册全局权益变化监听（可选，回调运行在主线程）
         PayKit.shared.setUpdatedCustomerInfoListener(object : UpdatedCustomerInfoListener {
             override fun onReceived(customerInfo: CustomerInfo) {
-                val hasPro = "subs_pro" in customerInfo.activeSubscriptions
-                val hasLifetime = "lifetime_pass" in customerInfo.nonConsumablePurchases
+                val hasPro = ProductIds.SUBS_PRO in customerInfo.activeSubscriptions
+                val hasLifetime = ProductIds.LIFETIME_PASS in customerInfo.nonConsumablePurchases
                 Log.d("PayKit", "用户权益更新: Pro=$hasPro, Lifetime=$hasLifetime")
             }
         })
@@ -187,7 +270,7 @@ class MyApplication : Application() {
 
 ```kotlin
 viewModelScope.launch {
-    val productIds = setOf("subs_pro", "coins_100", "lifetime_pass")
+    val productIds = setOf(ProductIds.SUBS_PRO, ProductIds.COINS_100, ProductIds.LIFETIME_PASS)
     val result = PayKit.shared.getProducts(productIds)
 
     result.onSuccess { products: List<StoreProduct> ->
@@ -198,7 +281,7 @@ viewModelScope.launch {
             Log.d("PayKit", "是否有免费试用: ${product.hasFreeTrial}")
         }
     }.onFailure { error ->
-        Log.e("PayKit", "查询商品失败: ${error.message} [Code: ${error.code}]")
+        Log.e("PayKit", "查询商品失败: ${error.message}")
     }
 }
 ```
@@ -222,9 +305,9 @@ fun onBuyClicked(activity: Activity, product: StoreProduct) {
                 // 支付成功！回调运行在主线程
                 Log.d("PayKit", "购买成功，订单号: ${storeTransaction.orderId}")
 
-                if (product.productId in PayKit.configuration.consumableProductIds) {
+                if (product.productId in ProductIds.CONSUMABLES) {
                     // 1. 若为消耗型商品，在此处给用户发货（发放金币/道具）
-                    grantVirtualCurrency(100)
+                    grantVirtualCurrency(product.productId)
                     // SDK 会在后台自动完成 consume 并清理账本；若网络故障未完成，下次启动时会自动补单
                 } else {
                     // 2. 订阅或非消耗品，SDK 已自动完成 Acknowledge 确认
@@ -256,12 +339,12 @@ fun onBuyClicked(activity: Activity, product: StoreProduct) {
 ### 4. 获取用户当前权益（冷启动秒开）
 
 ```kotlin
-// 方式 A：只读本地缓存（首屏秒开，零网络延迟）
-val cachedInfo: CustomerInfo? = PayKit.shared.getCustomerInfo(forceSync = false)
-val isVip = cachedInfo?.activeSubscriptions?.contains("subs_pro") == true
-
-// 方式 B：强制从 Google Play 商店后台对账同步（默认）
 viewModelScope.launch {
+    // 方式 A：只读本地缓存（首屏秒开，零网络延迟）
+    val cachedInfo: CustomerInfo? = PayKit.shared.getCustomerInfo(forceSync = false)
+    val isVip = cachedInfo?.activeSubscriptions?.contains(ProductIds.SUBS_PRO) == true
+
+    // 方式 B：强制从 Google Play 商店后台对账同步（默认）
     val freshInfo: CustomerInfo? = PayKit.shared.getCustomerInfo(forceSync = true)
 }
 ```
@@ -277,7 +360,7 @@ fun onRestorePurchasesClicked() {
     viewModelScope.launch {
         PayKit.shared.restorePurchases()
             .onSuccess { info ->
-                Toast.makeText(context, "购买已恢复", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "购买已恢复: ${info.activeSubscriptions}", Toast.LENGTH_SHORT).show()
             }
             .onFailure { error ->
                 Toast.makeText(context, "恢复失败: ${error.message}", Toast.LENGTH_SHORT).show()
@@ -317,16 +400,15 @@ viewModelScope.launch {
 
 ### 7. 订阅升降级与换档
 
-如需在同一订阅组内换档或从月付升级到年付：
+如需在同一订阅组内换档或从月付升级到年付，传入 `SubscriptionReplacement`（使用 PayKit 封装的 `SubscriptionReplacementMode`，无需依赖底层 Billing 类）：
 
 ```kotlin
-val activeSub = PayKit.shared.findActiveSubscription("subs_plus")
+val activeSub = PayKit.shared.findActiveSubscription(ProductIds.SUBS_PLUS)
 if (activeSub != null) {
     val replacement = SubscriptionReplacement(
-        oldProductId = "subs_plus",
+        oldProductId = ProductIds.SUBS_PLUS,
         oldPurchaseToken = activeSub.purchaseToken,
-        // 可选指定更换模式（如立即替换并折算退款，或当前周期结束后生效）
-        prorationMode = com.android.billingclient.api.BillingFlowParams.SubscriptionUpdateParams.ReplacementMode.CHARGE_FULL_PRICE
+        replacementMode = SubscriptionReplacementMode.CHARGE_FULL_PRICE
     )
 
     PayKit.shared.purchase(
@@ -398,6 +480,19 @@ PayKit.shared.setPurchaseVerifier(PurchaseVerifier { txn: StoreTransaction ->
 
 ---
 
+## 🚀 发布与自动化 CI/CD（维护者）
+
+本项目通过 GitHub Actions 自动完成单测验证与 GitHub Packages 发布（配置见 [`.github/workflows/publish.yml`](file:///Users/a/Develop/project/android/PayKit-Android/.github/workflows/publish.yml)）：
+
+- **推送 Tag 自动发布**：推送语义化版本 Tag（如 `1.0.1` 或 `v1.0.1`，注意同一版本只推一种格式避免冲突）即可自动触发 CI 运行单元测试并发布 AAR 至 GitHub Packages。
+- **Actions 页面手动发布**：在 GitHub 仓库 **Actions $\rightarrow$ Publish to GitHub Packages $\rightarrow$ Run workflow** 中输入目标版本号即可手动发版（如补发 `1.0.0`）。
+- **本地验证产物**：
+  ```bash
+  ./gradlew :pay:publishToMavenLocal
+  ```
+
+---
+
 ## 🛡️ 混淆规则 (ProGuard / R8)
 
 SDK 已内置 AAR 混淆消费规则（[`consumer-rules.pro`](file:///Users/a/Develop/project/android/PayKit-Android/pay/consumer-rules.pro)），宿主开启 `minifyEnabled = true` 时会自动保留所需模型与接口，无需额外手动配置。规则如下：
@@ -419,9 +514,9 @@ SDK 已内置 AAR 混淆消费规则（[`consumer-rules.pro`](file:///Users/a/De
 ### CustomerInfo
 ```kotlin
 data class CustomerInfo(
-    val activeSubscriptions: Set<String>,      // 当前生效中的订阅商品 ID 集合
-    val nonConsumablePurchases: Set<String>,   // 永久拥有的非消耗品商品 ID 集合
-    val allPurchaseRecords: List<StoreTransaction>, // 原始购买记录列表
+    val activeSubscriptions: Set<String>,            // 当前生效中的订阅商品 ID 集合
+    val nonConsumablePurchases: Set<String>,         // 永久拥有的非消耗品商品 ID 集合
+    val allPurchaseRecords: List<StoreTransaction>,  // 当前商店可见交易快照
     val unfulfilledConsumables: List<StoreTransaction> // 待发货的消耗品列表
 )
 ```

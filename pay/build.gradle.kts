@@ -46,6 +46,13 @@ android {
     }
 }
 
+val publishVersion: String = providers.gradleProperty("versionName")
+    .orElse(providers.gradleProperty("version"))
+    .orElse(providers.gradleProperty("VERSION_NAME"))
+    .orElse("1.0.0")
+    .get()
+    .removePrefix("v")
+
 afterEvaluate {
     publishing {
         publications {
@@ -53,6 +60,38 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.github.e-hai"
                 artifactId = "PayKit-Android"
+                version = publishVersion
+
+                pom {
+                    name.set("PayKit-Android")
+                    description.set("Lightweight Android Google Play Billing SDK with Kotlin Coroutines.")
+                    url.set("https://github.com/e-hai/PayKit-Android")
+                    licenses {
+                        license {
+                            name.set("The MIT License")
+                            url.set("https://opensource.org/licenses/MIT")
+                        }
+                    }
+                    scm {
+                        connection.set("scm:git:git://github.com/e-hai/PayKit-Android.git")
+                        developerConnection.set("scm:git:ssh://github.com/e-hai/PayKit-Android.git")
+                        url.set("https://github.com/e-hai/PayKit-Android")
+                    }
+                }
+            }
+        }
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/e-hai/PayKit-Android")
+                credentials {
+                    username = providers.gradleProperty("gpr.user")
+                        .orElse(providers.environmentVariable("GITHUB_ACTOR"))
+                        .orNull
+                    password = providers.gradleProperty("gpr.key")
+                        .orElse(providers.environmentVariable("GITHUB_TOKEN"))
+                        .orNull
+                }
             }
         }
     }
