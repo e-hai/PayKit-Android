@@ -49,7 +49,7 @@ android {
 val publishVersion: String = providers.gradleProperty("versionName")
     .orElse(providers.gradleProperty("version"))
     .orElse(providers.gradleProperty("VERSION_NAME"))
-    .orElse("1.0.0")
+    .orElse("1.0.1")
     .get()
     .removePrefix("v")
 

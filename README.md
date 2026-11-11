@@ -1,7 +1,7 @@
 # PayKit-Android
 
-[![Release](https://img.shields.io/badge/Release-1.0.0-blue.svg)](https://github.com/e-hai/PayKit-Android/releases/tag/1.0.0)
-[![GitHub Packages](https://img.shields.io/badge/GitHub%20Packages-1.0.0-blue?logo=github)](https://github.com/e-hai/PayKit-Android/packages)
+[![Release](https://img.shields.io/badge/Release-1.0.1-blue.svg)](https://github.com/e-hai/PayKit-Android/releases/tag/1.0.1)
+[![GitHub Packages](https://img.shields.io/badge/GitHub%20Packages-1.0.1-blue?logo=github)](https://github.com/e-hai/PayKit-Android/packages)
 [![Platform](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4-purple.svg)](https://kotlinlang.org)
 [![Google Play Billing](https://img.shields.io/badge/BillingClient-9.1.0-orange.svg)](https://developer.android.com/google/play/billing)
@@ -183,7 +183,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.e-hai:PayKit-Android:1.0.0")
+    implementation("com.github.e-hai:PayKit-Android:1.0.1")
 }
 ```
 
@@ -191,7 +191,7 @@ dependencies {
 
 ```toml
 [versions]
-paykit = "1.0.0"
+paykit = "1.0.1"
 
 [libraries]
 paykit = { group = "com.github.e-hai", name = "PayKit-Android", version.ref = "paykit" }
@@ -482,10 +482,10 @@ PayKit.shared.setPurchaseVerifier(PurchaseVerifier { txn: StoreTransaction ->
 
 ## 🚀 发布与自动化 CI/CD（维护者）
 
-本项目通过 GitHub Actions 自动完成单测验证与 GitHub Packages 发布（配置见 [`.github/workflows/publish.yml`](file:///Users/a/Develop/project/android/PayKit-Android/.github/workflows/publish.yml)）：
+本项目通过 GitHub Actions 自动完成单测验证与 GitHub Packages 发布（配置见 [`.github/workflows/publish.yml`](.github/workflows/publish.yml)）：
 
 - **推送 Tag 自动发布**：推送语义化版本 Tag（如 `1.0.1` 或 `v1.0.1`，注意同一版本只推一种格式避免冲突）即可自动触发 CI 运行单元测试并发布 AAR 至 GitHub Packages。
-- **Actions 页面手动发布**：在 GitHub 仓库 **Actions $\rightarrow$ Publish to GitHub Packages $\rightarrow$ Run workflow** 中输入目标版本号即可手动发版（如补发 `1.0.0`）。
+- **Actions 页面手动发布**：在 GitHub 仓库 **Actions $\rightarrow$ Publish to GitHub Packages $\rightarrow$ Run workflow** 中输入目标版本号即可手动发版（如 `1.0.1`）。
 - **本地验证产物**：
   ```bash
   ./gradlew :pay:publishToMavenLocal
@@ -495,7 +495,7 @@ PayKit.shared.setPurchaseVerifier(PurchaseVerifier { txn: StoreTransaction ->
 
 ## 🛡️ 混淆规则 (ProGuard / R8)
 
-SDK 已内置 AAR 混淆消费规则（[`consumer-rules.pro`](file:///Users/a/Develop/project/android/PayKit-Android/pay/consumer-rules.pro)），宿主开启 `minifyEnabled = true` 时会自动保留所需模型与接口，无需额外手动配置。规则如下：
+SDK 已内置 AAR 混淆消费规则（[`consumer-rules.pro`](pay/consumer-rules.pro)），宿主开启 `minifyEnabled = true` 时会自动保留所需模型与接口，无需额外手动配置。规则如下：
 
 ```proguard
 -keep class com.kit.pay.PayKit { *; }
