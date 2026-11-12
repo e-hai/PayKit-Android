@@ -73,7 +73,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val querying: StateFlow<Boolean> = _querying.asStateFlow()
 
     fun init() {
-        PayKit.configure(
+        PayKit.initialize(
             getApplication(),
             PayKitConfiguration(
                 subsProductIds = Constants.ALL_SUBS_IDS,

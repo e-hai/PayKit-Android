@@ -75,13 +75,15 @@ abstract class BillingAbstract {
      * @param storeProduct 要购买的商品
      * @param isOfferPersonalized 是否向用户披露价格经个性化（欧盟要求）；默认 false
      * @param subscriptionReplacement 订阅升降级 / 换档时传入；新购为 null
+     * @param obfuscatedAccountId 混淆后的业务账号标识（建议传不可逆哈希），用于 RTDN 服务端归属用户
      * @return 启动结果，成功表示界面已显示，失败表示启动失败
      */
     abstract suspend fun makePurchaseAsync(
         activity: WeakReference<Activity>,
         storeProduct: StoreProduct,
         isOfferPersonalized: Boolean = false,
-        subscriptionReplacement: SubscriptionReplacement? = null
+        subscriptionReplacement: SubscriptionReplacement? = null,
+        obfuscatedAccountId: String? = null
     ): Result<Unit>
 
     /**

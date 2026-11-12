@@ -35,7 +35,7 @@ PayKit-Android/
 │   └── src/main/java/com/kit/pay/sample/
 │       ├── App.kt
 │       ├── MainActivity.kt       # Compose Demo UI
-│       ├── MainViewModel.kt      # 集成示例：configure / getProducts / purchase
+│       ├── MainViewModel.kt      # 集成示例：initialize / getProducts / purchase
 │       └── Constants.kt          # Demo 商品 ID（Free/Plus/Pro 月年）
 ├── gradle/libs.versions.toml     # 版本目录（Billing / AGP / Kotlin）
 ├── README.md                     # 宿主集成文档（面向人）
@@ -87,8 +87,8 @@ DeviceCache  CustomerInfoHelper  BillingAbstract
 
 ### Core Data Flow
 
-1. **Init**：`PayKit.configure(context, configuration)` → `startConnection` → `syncPurchasesInternal()`（本地缓存由 `getCustomerInfo(forceSync = false)` 按需读取）
-2. **Sync / 恢复**：`syncPurchases()` / `restorePurchases()` → 查 `SUBS` + `INAPP` → 订阅/非消耗 **acknowledge**；消耗品仅当履约账本已标记才 **consume** → 更新 `CustomerInfo`（当前商店快照，不无限合并历史）
+1. **Init**：`PayKit.initialize(context, configuration)` → `startConnection` → `syncPurchasesInternal()`（本地缓存由 `getCustomerInfo(forceSync = false)` 按需读取）
+2. **Sync / 恢复**：`syncPurchases()` / `restorePurchases()` → 查 `SUBS` + `INAPP` → 未确认的订阅/非消耗品**严格先经过 `PurchaseVerifier` 验单**（失败则不确认、不计入权益、留待下次重试）；验单通过后按 `AcknowledgeMode`（`CLIENT_AUTO` 自动 `acknowledgePurchase` / `SERVER_MANAGED` 跳过客户端确认）；消耗品仅当履约账本已标记才 **consume** → 更新 `CustomerInfo`（当前商店快照，不无限合并历史）
 3. **Query**：`getProducts(ids)` 按配置拆分 SUBS / INAPP，调用 `queryProductDetails`
 4. **Purchase**：`purchase(...)` → `launchBillingFlow` → `onPurchasesUpdated` → sync → 消耗品先记账本 → `onCompleted`（宿主发货）→ consume；失败留账本重试
 5. **查权益**：启动用 `getCustomerInfo(forceSync = false)` + Listener；未履约消耗品见 `CustomerInfo.unfulfilledConsumables` / `markConsumableFulfilled`
@@ -109,7 +109,7 @@ DeviceCache  CustomerInfoHelper  BillingAbstract
 
 ```kotlin
 // 初始化（只生效一次，除非 PayKit.reset()）
-PayKit.configure(context: Context, configuration: PayKitConfiguration)
+PayKit.initialize(context: Context, configuration: PayKitConfiguration)
 PayKit.reset()  // 断开连接、默认清空本地权益缓存；改配置 / 测试前调用
 PayKit.reset(clearCache = false)  // 仅拆单例，保留缓存
 
@@ -137,17 +137,21 @@ fun purchase(
 
 fun setUpdatedCustomerInfoListener(listener: UpdatedCustomerInfoListener?)  // 主线程回调
 fun setPurchaseVerifier(verifier: PurchaseVerifier)  // 默认 LocalPurchaseVerifier
+fun setObfuscatedAccountId(accountId: String?)       // 绑定混淆账号（RTDN 归属）
 ```
 
 ### 关键模型
 
 ```kotlin
+enum class AcknowledgeMode { CLIENT_AUTO, SERVER_MANAGED }
+
 data class PayKitConfiguration(
     val subsProductIds: Set<String> = emptySet(),
     val consumableProductIds: Set<String> = emptySet(),
     val nonConsumableProductIds: Set<String> = emptySet(),
     val isOfferPersonalizedDefault: Boolean = false,  // 欧盟个性化报价默认
-    val purchaseVerifier: PurchaseVerifier = LocalPurchaseVerifier  // 验单扩展
+    val purchaseVerifier: PurchaseVerifier = LocalPurchaseVerifier,  // 验单扩展
+    val acknowledgeMode: AcknowledgeMode = AcknowledgeMode.CLIENT_AUTO
 )
 
 data class SubscriptionReplacement(
@@ -220,7 +224,7 @@ Product [subs_plus]             → Plus 权益
 默认 [LocalPurchaseVerifier] 不联网。接入服务端时实现 [PurchaseVerifier]，在 `onCompleted` / `markConsumableFulfilled` 之前用 `purchaseToken`（或 `signature` + `originalJson`）调后端验单：
 
 ```kotlin
-PayKit.configure(
+PayKit.initialize(
     context,
     PayKitConfiguration(
         /* … */,
@@ -290,7 +294,7 @@ acknowledge fail orderId=... code=6 msg=...
 
 ## Implementation Caveats
 
-- `configure` 双重检查锁，重复调用不会重建实例；改配置先 [PayKit.reset]（默认清缓存），再 `configure`。
+- `initialize` 双重检查锁，重复调用不会重建实例；改配置先 [PayKit.reset]（默认清缓存），再 `initialize`。
 - `getCustomerInfo()` / `syncPurchases()` 在 IO 调度；**公开回调已切主线程**（`MainThreadDispatcher`），Demo/宿主可直接更新 UI。
 - 订阅购买缺少 `subscriptionToken`（offerToken）会启动失败；一次性多 offer 时同样应带上 token。
 - `StoreProduct.nativeProductDetails` 为 `@Transient`，不可依赖序列化还原后再购买。

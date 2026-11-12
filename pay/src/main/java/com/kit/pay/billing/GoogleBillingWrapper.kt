@@ -342,7 +342,8 @@ class GoogleBillingWrapper(applicationContext: Context) : BillingAbstract(),
         activity: WeakReference<Activity>,
         storeProduct: StoreProduct,
         isOfferPersonalized: Boolean,
-        subscriptionReplacement: SubscriptionReplacement?
+        subscriptionReplacement: SubscriptionReplacement?,
+        obfuscatedAccountId: String?
     ): Result<Unit> {
         if (!ensureConnected()) {
             logE("makePurchase abort reason=not_connected productId=${storeProduct.productId}")
@@ -418,6 +419,9 @@ class GoogleBillingWrapper(applicationContext: Context) : BillingAbstract(),
                     .build()
             )
         }
+        obfuscatedAccountId?.takeIf { it.isNotBlank() }?.let {
+            flowBuilder.setObfuscatedAccountId(it)
+        }
         val flowParams = flowBuilder.build()
         val activity = activity.get() ?: return Result.failure(
             PayKitError(
@@ -438,6 +442,7 @@ class GoogleBillingWrapper(applicationContext: Context) : BillingAbstract(),
             logD(
                 "launchBillingFlow success productId=${storeProduct.productId} " +
                     "type=${storeProduct.type} personalized=$isOfferPersonalized " +
+                    "accountBound=${!obfuscatedAccountId.isNullOrBlank()} " +
                     "replace=${subscriptionReplacement?.oldProductId}"
             )
             Result.success(Unit)

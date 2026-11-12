@@ -1,7 +1,7 @@
 # PayKit-Android
 
-[![Release](https://img.shields.io/badge/Release-1.0.1-blue.svg)](https://github.com/e-hai/PayKit-Android/releases/tag/1.0.1)
-[![GitHub Packages](https://img.shields.io/badge/GitHub%20Packages-1.0.1-blue?logo=github)](https://github.com/e-hai/PayKit-Android/packages)
+[![Release](https://img.shields.io/badge/Release-1.1.0-blue.svg)](https://github.com/e-hai/PayKit-Android/releases/tag/1.1.0)
+[![GitHub Packages](https://img.shields.io/badge/GitHub%20Packages-1.1.0-blue?logo=github)](https://github.com/e-hai/PayKit-Android/packages)
 [![Platform](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4-purple.svg)](https://kotlinlang.org)
 [![Google Play Billing](https://img.shields.io/badge/BillingClient-9.1.0-orange.svg)](https://developer.android.com/google/play/billing)
@@ -183,7 +183,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.e-hai:PayKit-Android:1.0.1")
+    implementation("com.github.e-hai:PayKit-Android:1.1.0")
 }
 ```
 
@@ -191,7 +191,7 @@ dependencies {
 
 ```toml
 [versions]
-paykit = "1.0.1"
+paykit = "1.1.0"
 
 [libraries]
 paykit = { group = "com.github.e-hai", name = "PayKit-Android", version.ref = "paykit" }
@@ -248,7 +248,7 @@ class MyApplication : Application() {
         )
 
         // 配置并启动连接
-        PayKit.configure(this, configuration)
+        PayKit.initialize(this, configuration)
 
         // 注册全局权益变化监听（可选，回调运行在主线程）
         PayKit.shared.setUpdatedCustomerInfoListener(object : UpdatedCustomerInfoListener {
@@ -422,30 +422,49 @@ if (activeSub != null) {
 
 ---
 
-### 8. 服务端验单扩展（可选）
+### 8. 服务端协同与 RTDN 扩展（可选）
 
-默认使用纯本地校验。如需在发货前将收据提交至自有服务器验签：
+默认采用纯本地模式（`LocalPurchaseVerifier` + `AcknowledgeMode.CLIENT_AUTO`）。如需接入自有后端与 Google Play RTDN：
+
+1. **严格验单闸门（需服务端幂等）**：无论是主动购买还是启动 `syncPurchases()` 补单，所有未确认订单都会**先经过 `PurchaseVerifier` 验单**；验单失败（含断网）时**不会确认订单、不会计入本地权益**，留待下次同步重试（同一 `purchaseToken` 可能被多次提交，服务端接口需以 `purchaseToken` 做幂等）。
+2. **绑定用户账号（RTDN 必需）**：在用户登录后、`purchase()` 弹窗之前调用 `setObfuscatedAccountId`（建议传入业务用户 ID 的不可逆 SHA-256 哈希，避免明文 PII）。即使支付完成前 App 被杀，服务端收到 RTDN 后也可通过 Play Developer API 中的 `obfuscatedExternalAccountId` 准确归属用户。
+3. **确认权选择（`AcknowledgeMode`）**：
+   - `AcknowledgeMode.CLIENT_AUTO`（默认）：验单通过后由客户端 SDK 自动执行 `acknowledgePurchase`。
+   - `AcknowledgeMode.SERVER_MANAGED`：由您的服务端在验签后调 Play Developer API 确认订单，SDK 跳过客户端重复确认。
 
 ```kotlin
-PayKit.shared.setPurchaseVerifier(PurchaseVerifier { txn: StoreTransaction ->
-    try {
-        // 调用您的服务端 HTTP 接口验签
-        val response = myApiService.verifyGooglePurchase(
-            orderId = txn.orderId,
-            purchaseToken = txn.purchaseToken,
-            productIds = txn.productIds,
-            signature = txn.signature,
-            originalJson = txn.originalJson
-        )
-        if (response.isSuccess) {
-            Result.success(Unit)
-        } else {
-            Result.failure(PayKitError(ErrorCode.VERIFICATION_FAILED, "服务端验单未通过"))
+// 1. 初始化时注入服务端验单与确认策略
+PayKit.initialize(
+    this,
+    PayKitConfiguration(
+        subsProductIds = setOf(ProductIds.SUBS_PLUS, ProductIds.SUBS_PRO),
+        consumableProductIds = ProductIds.CONSUMABLES,
+        nonConsumableProductIds = setOf(ProductIds.LIFETIME_PASS),
+        acknowledgeMode = AcknowledgeMode.SERVER_MANAGED,
+        purchaseVerifier = PurchaseVerifier { txn: StoreTransaction ->
+            try {
+                // 调用您的服务端 HTTP 接口验签（务必以 purchaseToken 幂等）
+                val response = myApiService.verifyGooglePurchase(
+                    orderId = txn.orderId,
+                    purchaseToken = txn.purchaseToken,
+                    productIds = txn.productIds,
+                    signature = txn.signature,
+                    originalJson = txn.originalJson
+                )
+                if (response.isSuccess) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(PayKitError(ErrorCode.VERIFICATION_FAILED, "服务端验单未通过"))
+                }
+            } catch (e: Exception) {
+                Result.failure(PayKitError(ErrorCode.NETWORK_ERROR, "验单网络超时"))
+            }
         }
-    } catch (e: Exception) {
-        Result.failure(PayKitError(ErrorCode.NETWORK_ERROR, "验单网络超时"))
-    }
-})
+    )
+)
+
+// 2. 用户登录后、购买弹窗弹出前绑定混淆账号 ID（退出登录可传 null 清除）
+PayKit.shared.setObfuscatedAccountId(sha256(currentUserId))
 ```
 
 ---
@@ -485,7 +504,7 @@ PayKit.shared.setPurchaseVerifier(PurchaseVerifier { txn: StoreTransaction ->
 本项目通过 GitHub Actions 自动完成单测验证与 GitHub Packages 发布（配置见 [`.github/workflows/publish.yml`](.github/workflows/publish.yml)）：
 
 - **推送 Tag 自动发布**：推送语义化版本 Tag（如 `1.0.1` 或 `v1.0.1`，注意同一版本只推一种格式避免冲突）即可自动触发 CI 运行单元测试并发布 AAR 至 GitHub Packages。
-- **Actions 页面手动发布**：在 GitHub 仓库 **Actions $\rightarrow$ Publish to GitHub Packages $\rightarrow$ Run workflow** 中输入目标版本号即可手动发版（如 `1.0.1`）。
+- **Actions 页面手动发布**：在 GitHub 仓库 **Actions $\rightarrow$ Publish to GitHub Packages $\rightarrow$ Run workflow** 中输入目标版本号即可手动发版（如 `1.1.0`）。
 - **本地验证产物**：
   ```bash
   ./gradlew :pay:publishToMavenLocal

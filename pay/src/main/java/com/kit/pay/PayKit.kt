@@ -33,7 +33,7 @@ import java.lang.ref.WeakReference
  *
  * 使用示例：
  * ```kotlin
- * PayKit.configure(context, configuration)
+ * PayKit.initialize(context, configuration)
  * val payKit = PayKit.shared
  * ```
  */
@@ -52,6 +52,9 @@ class PayKit private constructor(
     @Volatile
     private var purchaseVerifier: PurchaseVerifier = configuration.purchaseVerifier
 
+    @Volatile
+    private var obfuscatedAccountId: String? = null
+
     /** 保护 [activePurchaseCallback] 的读写，避免并发 purchase 互相覆盖 */
     private val purchaseLock = Any()
 
@@ -66,7 +69,7 @@ class PayKit private constructor(
      * 初始化 SDK 内部组件：连接 Billing → 自动 [syncPurchasesInternal]。
      * 本地缓存由宿主通过 [getCustomerInfo]（`forceSync = false`）按需读取。
      */
-    private fun initialize() {
+    private fun start() {
         billingWrapper.startConnection(
             onConnected = {
                 LogUtil.d("init connected startSync=true")
@@ -104,7 +107,10 @@ class PayKit private constructor(
      * - 订阅 / 非消耗：acknowledge；失败不计入权益且返回 failure
      * - 消耗品：仅当履约账本已标记「已发货待 consume」时才 consume；新单留给宿主发货
      */
-    private suspend fun syncPurchasesInternal(): Result<CustomerInfo> = coroutineScope {
+    private suspend fun syncPurchasesInternal(
+        verifiedTokens: MutableSet<String> = mutableSetOf(),
+        verificationErrors: MutableMap<String, PayKitError> = mutableMapOf()
+    ): Result<CustomerInfo> = coroutineScope {
         LogUtil.d("syncPurchases start")
         val cachedInfo = deviceCache.getCachedCustomerInfo()
 
@@ -182,6 +188,32 @@ class PayKit private constructor(
             if (txn.isAcknowledged) {
                 continue
             }
+
+            // 严格验单闸门：未确认的订阅 / 非消耗品必须先通过验单，失败则不确认、不计入权益，留待下次同步重试
+            val verifyError = verifyPurchase(txn)
+            if (verifyError != null) {
+                verificationErrors[txn.purchaseToken] = verifyError
+                if (acknowledgeFailure == null) {
+                    acknowledgeFailure = verifyError
+                }
+                continue
+            }
+            verifiedTokens.add(txn.purchaseToken)
+
+            if (configuration.acknowledgeMode == AcknowledgeMode.SERVER_MANAGED) {
+                val index = transactionsForCompute.indexOfFirst {
+                    it.purchaseToken == txn.purchaseToken
+                }
+                if (index >= 0) {
+                    transactionsForCompute[index] = txn.copy(isAcknowledged = true)
+                }
+                LogUtil.d(
+                    "syncPurchases serverManagedAck orderId=${txn.orderId} " +
+                        "products=${txn.productIds}"
+                )
+                continue
+            }
+
             val ackResult = billingWrapper.consumeAndAcknowledge(txn, isConsumable = false)
             if (ackResult.isSuccess) {
                 val index = transactionsForCompute.indexOfFirst {
@@ -222,12 +254,11 @@ class PayKit private constructor(
                     "pending=${newInfo.pendingPurchases.size} " +
                     "msg=${acknowledgeFailure.message}"
             )
-            Result.failure(
-                PayKitError(
-                    ErrorCode.STORE_PROBLEM,
-                    "Failed to acknowledge/consume one or more purchases: ${acknowledgeFailure.message}"
-                )
+            val failureError = acknowledgeFailure as? PayKitError ?: PayKitError(
+                ErrorCode.STORE_PROBLEM,
+                "Failed to acknowledge/consume one or more purchases: ${acknowledgeFailure.message}"
             )
+            Result.failure(failureError)
         } else {
             LogUtil.d(
                 "syncPurchases done success=true " +
@@ -256,6 +287,15 @@ class PayKit private constructor(
     fun setPurchaseVerifier(verifier: PurchaseVerifier) {
         this.purchaseVerifier = verifier
         LogUtil.d("setPurchaseVerifier impl=${verifier::class.java.simpleName}")
+    }
+
+    /**
+     * 设置混淆后的业务账号标识（建议传不可逆哈希值，避免明文 PII），用于 Google Play RTDN 服务端归属用户。
+     * 必须在 [purchase] 弹出支付页之前设置；传 null 可清除。
+     */
+    fun setObfuscatedAccountId(accountId: String?) {
+        this.obfuscatedAccountId = accountId?.takeIf { it.isNotBlank() }
+        LogUtil.d("setObfuscatedAccountId bound=${this.obfuscatedAccountId != null}")
     }
 
     private suspend fun verifyPurchase(transaction: StoreTransaction): PayKitError? {
@@ -481,9 +521,10 @@ class PayKit private constructor(
             }
             this.activePurchaseCallback = callback
         }
+        val accountIdSnapshot = obfuscatedAccountId
         LogUtil.d(
             "purchase start productId=${storeProduct.productId} type=${storeProduct.type} " +
-                "personalized=$isOfferPersonalized " +
+                "personalized=$isOfferPersonalized accountBound=${accountIdSnapshot != null} " +
                 "replace=${subscriptionReplacement?.oldProductId}"
         )
 
@@ -492,7 +533,8 @@ class PayKit private constructor(
                 WeakReference(activity),
                 storeProduct,
                 isOfferPersonalized,
-                subscriptionReplacement
+                subscriptionReplacement,
+                accountIdSnapshot
             )
             result.onFailure { error ->
                 LogUtil.e(
@@ -517,7 +559,9 @@ class PayKit private constructor(
     // ==========================================
     override fun onPurchasesUpdated(successfulPurchases: List<StoreTransaction>) {
         applicationScope.launch {
-            val syncResult = syncPurchasesInternal()
+            val verifiedTokens = mutableSetOf<String>()
+            val verificationErrors = mutableMapOf<String, PayKitError>()
+            val syncResult = syncPurchasesInternal(verifiedTokens, verificationErrors)
             var latestInfo = syncResult.getOrNull()
             if (activePurchaseCallback == null) return@launch
 
@@ -525,13 +569,21 @@ class PayKit private constructor(
                 it.purchaseState == PurchaseState.PURCHASED
             }
             if (purchased.isNotEmpty()) {
+                val primary = purchased.first()
+                verificationErrors[primary.purchaseToken]?.let { verifyError ->
+                    dispatchPurchaseCallback { cb ->
+                        cb.onError(verifyError, userCancelled = false)
+                    }
+                    return@launch
+                }
                 if (latestInfo != null) {
-                    val primary = purchased.first()
-                    verifyPurchase(primary)?.let { error ->
-                        dispatchPurchaseCallback { cb ->
-                            cb.onError(error, userCancelled = false)
+                    if (primary.purchaseToken !in verifiedTokens) {
+                        verifyPurchase(primary)?.let { error ->
+                            dispatchPurchaseCallback { cb ->
+                                cb.onError(error, userCancelled = false)
+                            }
+                            return@launch
                         }
-                        return@launch
                     }
 
                     // 验单通过后再记履约账本 → onCompleted（宿主发货）→ consume
@@ -642,12 +694,12 @@ class PayKit private constructor(
         private var sharedInstance: PayKit? = null
 
         val shared: PayKit
-            get() = sharedInstance ?: throw IllegalStateException("PayKit is not configured.")
+            get() = sharedInstance ?: throw IllegalStateException("PayKit is not initialized.")
 
         /**
          * 初始化 SDK（进程内只生效一次，除非先 [reset]）。
          */
-        fun configure(
+        fun initialize(
             context: Context,
             configuration: PayKitConfiguration
         ) {
@@ -658,19 +710,19 @@ class PayKit private constructor(
                         val applicationScope = ProcessLifecycleOwner.get().lifecycleScope
                         val instance = PayKit(applicationContext, applicationScope, configuration)
                         sharedInstance = instance
-                        instance.initialize()
+                        instance.start()
                     } else {
-                        LogUtil.w("configure ignored alreadyConfigured=true use reset() first")
+                        LogUtil.w("initialize ignored alreadyInitialized=true use reset() first")
                     }
                 }
             } else {
-                LogUtil.w("configure ignored alreadyConfigured=true use reset() first")
+                LogUtil.w("initialize ignored alreadyInitialized=true use reset() first")
             }
         }
 
         /**
          * 断开 Billing、清空单例与本地权益缓存，便于测试或更换 [PayKitConfiguration]。
-         * 之后需再次 [configure]。
+         * 之后需再次 [initialize]。
          *
          * @param clearCache 是否清除权益缓存与消耗品履约账本（默认 true）
          */
@@ -681,6 +733,7 @@ class PayKit private constructor(
                     instance.activePurchaseCallback = null
                 }
                 instance.updateListener = null
+                instance.obfuscatedAccountId = null
                 runCatching { instance.billingWrapper.endConnection() }
                 if (clearCache) {
                     runCatching { instance.deviceCache.clearCache() }
