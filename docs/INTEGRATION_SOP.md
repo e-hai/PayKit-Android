@@ -49,7 +49,7 @@ flowchart LR
 ### 1. 添加依赖
 - **Android**：在 `settings.gradle.kts` 配置 GitHub Packages（需 `read:packages` Token），模块引入：
   ```kotlin
-  implementation("com.github.e-hai:PayKit-Android:1.1.0")
+  implementation("com.github.e-hai:PayKit-Android:1.1.1")
   ```
 - **iOS**：通过 SPM 引入：
   ```swift
