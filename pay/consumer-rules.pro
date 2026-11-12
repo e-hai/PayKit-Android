@@ -5,6 +5,7 @@
 -keep class com.kit.pay.PayKit { *; }
 -keep class com.kit.pay.models.** { *; }
 -keep class com.kit.pay.interfaces.** { *; }
+-keep class com.kit.pay.utils.LogUtil { *; }
 
 # Callbacks implemented by host apps
 -keepclassmembers class * implements com.kit.pay.interfaces.PurchaseCallback { *; }

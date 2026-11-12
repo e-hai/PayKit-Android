@@ -110,6 +110,7 @@ DeviceCache  CustomerInfoHelper  BillingAbstract
 
 ```kotlin
 // 初始化（只生效一次，除非 PayKit.reset()）
+PayKit.setLogger(logger: PayKitLogger?)  // 可在 initialize 前设置，接管内部日志
 PayKit.initialize(context: Context, configuration: PayKitConfiguration)
 PayKit.reset()  // 断开连接、默认清空本地权益缓存；改配置 / 测试前调用
 PayKit.reset(clearCache = false)  // 仅拆单例，保留缓存

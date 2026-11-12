@@ -697,6 +697,14 @@ class PayKit private constructor(
             get() = sharedInstance ?: throw IllegalStateException("PayKit is not initialized.")
 
         /**
+         * 注册外部日志拦截器（接管模式）。可在 [initialize] 之前调用以捕获初始化日志。
+         * 传入 null 恢复默认系统 `android.util.Log` 输出。
+         */
+        fun setLogger(logger: PayKitLogger?) {
+            LogUtil.logger = logger
+        }
+
+        /**
          * 初始化 SDK（进程内只生效一次，除非先 [reset]）。
          */
         fun initialize(
