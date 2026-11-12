@@ -38,8 +38,9 @@ PayKit-Android/
 │       ├── MainViewModel.kt      # 集成示例：initialize / getProducts / purchase
 │       └── Constants.kt          # Demo 商品 ID（Free/Plus/Pro 月年）
 ├── gradle/libs.versions.toml     # 版本目录（Billing / AGP / Kotlin）
+├── docs/
+│   └── GOOGLE_PLAY_BILLING_DETAILS.md # Billing 参数详解（调试用）
 ├── README.md                     # 宿主集成文档（面向人）
-├── GOOGLE_PLAY_BILLING_DETAILS.md # Billing 参数详解（调试用）
 ├── AGENTS.md                     # 本文件
 └── settings.gradle.kts           # include :sample, :pay
 ```
@@ -280,7 +281,7 @@ acknowledge fail orderId=... code=6 msg=...
 
 ## Important Notes for Agents
 
-1. **先读再改**：改 Billing 逻辑前对照 `GOOGLE_PLAY_BILLING_DETAILS.md` 与官方 Billing 8.x API。
+1. **先读再改**：改 Billing 逻辑前对照 `docs/GOOGLE_PLAY_BILLING_DETAILS.md` 与官方 Billing API。
 2. **保持公开 API 稳定**：`PayKit.purchase(Activity, ...)` 对外必须是 `Activity`；`WeakReference` 仅限 Billing 层内部。
 3. **不要擅自「修复」`activePurchaseCallback` 的单回调设计**，除非用户明确要求（当前刻意只支持单笔进行中购买；二次 `purchase` 返回 `PURCHASE_IN_PROGRESS`，不会顶掉前一次回调）。
 4. **无服务端校验为默认**：默认 [LocalPurchaseVerifier]；接入服务端须显式实现 [PurchaseVerifier]，勿在 SDK 内 silently 假装已验签。
@@ -330,5 +331,5 @@ CI & Publish：
 | 文件 | 读者 | 内容 |
 |------|------|------|
 | `README.md` | 宿主开发者 | 集成步骤、场景示例、FAQ |
-| `GOOGLE_PLAY_BILLING_DETAILS.md` | 调试 / Agent | ProductDetails / Purchase 字段说明 |
+| `docs/GOOGLE_PLAY_BILLING_DETAILS.md` | 调试 / Agent | ProductDetails / Purchase 字段说明 |
 | `AGENTS.md` | AI Agent | 结构、约定、改动红线 |
